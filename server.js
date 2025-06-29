@@ -70,13 +70,6 @@ app.get('/auth/google',
 app.get('/auth/google/callback',
   passport.authenticate('google', { session: false, failureRedirect: '/auth/failure' }),
   (req, res) => {
-    const user = req.user;
-    const token = jwt.sign({
-      id: user.id,
-      name: user.displayName,
-      email: user.emails?.[0]?.value || '',
-      photo: user.photos?.[0]?.value || ''
-    }, process.env.JWT_SECRET, { expiresIn: '1d' });
 
     res.redirect(`https://photoeditor-front.netlify.app/oauth-success?token=${token}`);
   }
