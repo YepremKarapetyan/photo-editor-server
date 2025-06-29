@@ -36,7 +36,7 @@ const Photo = mongoose.model('Photo', photoSchema);
 // ===== Middlewares =====
 app.use(cookieParser());
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: 'https://photoeditor-front.netlify.app',
   credentials: true
 }));
 app.use(express.json({ limit: '25mb' })); // large payloads for base64 images
@@ -68,7 +68,7 @@ app.get('/auth/google/callback',
       photo: user.photos?.[0]?.value || ''
     }, process.env.JWT_SECRET, { expiresIn: '1d' });
 
-    res.redirect(`http://localhost:5173/oauth-success?token=${token}`);
+    res.redirect(`https://photoeditor-front.netlify.app/oauth-success?token=${token}`);
   }
 );
 
