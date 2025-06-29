@@ -14,6 +14,24 @@ dotenv.config()
 
 const app = express();
 
+app.use(cookieParser());
+app.use(cors({
+  origin: 'https://photoeditor-front.netlify.app',
+  credentials: true
+}));
+app.use(express.json({ limit: '25mb' }));
+app.use(session({
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        sameSite: 'none',
+        secure: true,
+        maxAge: 1000 * 60 * 60 * 24,
+    }
+}));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // ===== Connect to MongoDB =====
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ MongoDB connected'))
@@ -32,14 +50,6 @@ const photoSchema = new mongoose.Schema({
 });
 const Photo = mongoose.model('Photo', photoSchema);
 
-// ===== Middlewares =====
-app.use(cookieParser());
-app.use(cors({
-  origin: 'https://photoeditor-front.netlify.app',
-  credentials: true
-}));
-app.use(express.json({ limit: '25mb' })); // large payloads for base64 images
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ===== Passport Google OAuth Setup =====
 passport.use(new GoogleStrategy({
