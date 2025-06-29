@@ -244,7 +244,7 @@ app.get('/me', authenticate, (req, res) => {
 });
 
 // ===== Start Server =====
-const PORT = 3000;
+const PORT = 10000;
 app.listen(PORT, () => {
   console.log(`✅ Server running at http://localhost:${PORT}`);
 });
