@@ -1,0 +1,42 @@
+# Node.js dependencies
+node_modules/
+
+# Optional npm cache directory
+.npm/
+
+# dotenv environment variables file
+.env
+
+# Logs
+*.log
+logs/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# IDE/editor-specific files
+.vscode/
+.idea/
+
+
+# Debugger configurations
+*.launch
+*.vspscc
+
+# Build output
+dist/
+build/
+
+# Temporary files
+*.bak
+*.tmp
+
+# Test coverage directory
+coverage/
+
+# Yarn lock file (if you're using yarn instead of npm)
+yarn.lock
+
+# Other files you may want to ignore
+*.swp
