@@ -9,6 +9,7 @@ const multer = require('multer');
 const mongoose = require('mongoose');
 const path = require('path');
 const fs = require('fs');
+const session = require('express-session');
 
 dotenv.config()
 
