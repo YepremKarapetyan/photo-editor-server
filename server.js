@@ -9,13 +9,22 @@ const mongoose = require('mongoose');
 const path = require('path');
 const fs = require('fs');
 const session = require('express-session');
-const MongoStore = require('connect-mongo'); // ✅ Added
+const MongoStore = require('connect-mongo');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 dotenv.config();
-require('./passport'); // moved GoogleStrategy setup to separate file
+require('./passport');
 
 const app = express();
-app.set('trust proxy', 1); // Required for secure cookies on Render
+app.set('trust proxy', 1);
+
+// Cloudinary config
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
 app.use(cookieParser());
 app.use(cors({
@@ -24,7 +33,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '25mb' }));
 
-// ===== Session Config with MongoStore =====
+// Session Config with MongoStore
 app.use(session({
   secret: process.env.SESSION_SECRET || 'defaultsecret',
   resave: false,
@@ -32,26 +41,24 @@ app.use(session({
   store: MongoStore.create({
     mongoUrl: process.env.MONGO_URI,
     collectionName: 'sessions',
-    ttl: 60 * 60 * 24 // 1 day
+    ttl: 60 * 60 * 24
   }),
   cookie: {
     sameSite: 'none',
     secure: true,
-    maxAge: 1000 * 60 * 60 * 24, // 1 day
+    maxAge: 1000 * 60 * 60 * 24,
   }
 }));
 
 app.use(passport.initialize());
 app.use(passport.session());
 
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-// ===== MongoDB Connect =====
+// MongoDB Connect
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ MongoDB connected'))
   .catch((err) => console.error('❌ MongoDB error:', err));
 
-// ===== Photo Schema =====
+// Photo Schema
 const photoSchema = new mongoose.Schema({
   ownerEmail: { type: String, required: true },
   imageUrl: { type: String, required: true },
@@ -64,7 +71,7 @@ const photoSchema = new mongoose.Schema({
 });
 const Photo = mongoose.model('Photo', photoSchema);
 
-// ===== Routes =====
+// Auth Routes
 app.get('/auth/google',
   passport.authenticate('google', { scope: ['profile', 'email'] })
 );
@@ -90,61 +97,49 @@ app.get('/logout', (req, res) => {
   });
 });
 
-// ===== Auth Middleware =====
+// Auth Middleware
 const authenticate = (req, res, next) => {
   if (req.isAuthenticated()) return next();
   return res.status(401).json({ success: false, message: 'Not authenticated' });
 };
 
-// ===== Multer File Uploads =====
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = './uploads';
-    if (!fs.existsSync(uploadPath)) fs.mkdirSync(uploadPath);
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const filename = `${Date.now()}-${Math.round(Math.random() * 1E9)}${ext}`;
-    cb(null, filename);
+// Multer with Cloudinary storage
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'photo-editor',
+    allowed_formats: ['jpg', 'png', 'jpeg', 'webp'],
+    transformation: [{ quality: 'auto' }]
   }
 });
 const upload = multer({ storage });
 
-// ===== Upload Photo =====
+// Upload Photo
 app.post('/upload-photo', authenticate, upload.single('photo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
 
   const newPhoto = new Photo({
     ownerEmail: req.user.email,
-    imageUrl: `/uploads/${req.file.filename}`
+    imageUrl: req.file.path
   });
 
   await newPhoto.save();
   res.json({ success: true, photo: newPhoto });
 });
 
-// ===== My Photos =====
+// My Photos
 app.get('/my-photos', authenticate, async (req, res) => {
   const photos = await Photo.find({ ownerEmail: req.user.email });
   res.json({ success: true, photos });
 });
 
-// ===== Delete Photo =====
+// Delete Photo (does not delete from Cloudinary)
 app.delete('/photo/:id', authenticate, async (req, res) => {
   const photo = await Photo.findById(req.params.id);
   if (!photo || photo.ownerEmail !== req.user.email)
     return res.status(403).json({ success: false, message: 'Not authorized' });
 
   try {
-    const originalPath = path.join(__dirname, photo.imageUrl);
-    if (fs.existsSync(originalPath)) fs.unlinkSync(originalPath);
-
-    for (const edited of photo.editedVersions) {
-      const editedPath = path.join(__dirname, edited.url);
-      if (fs.existsSync(editedPath)) fs.unlinkSync(editedPath);
-    }
-
     await photo.deleteOne();
     res.json({ success: true });
   } catch (err) {
@@ -153,21 +148,17 @@ app.delete('/photo/:id', authenticate, async (req, res) => {
   }
 });
 
-// ===== Edit Save Function =====
-const saveBase64Image = (base64Data, filename) => {
-  const matches = base64Data.match(/^data:(.+);base64,(.+)$/);
-  if (!matches) throw new Error('Invalid base64 string');
-
-  const ext = matches[1].split('/')[1];
-  const data = matches[2];
-  const buffer = Buffer.from(data, 'base64');
-  const filePath = path.join(__dirname, 'uploads', filename + '.' + ext);
-
-  fs.writeFileSync(filePath, buffer);
-  return `/uploads/${filename}.${ext}`;
+// Save base64 image to Cloudinary
+const saveBase64Image = async (base64Data, filename) => {
+  const uploadResponse = await cloudinary.uploader.upload(base64Data, {
+    folder: 'photo-editor',
+    public_id: filename,
+    overwrite: true
+  });
+  return uploadResponse.secure_url;
 };
 
-// ===== Edit Photo =====
+// Edit Photo (save base64 to cloud)
 app.patch('/photo/:id/edit', authenticate, async (req, res) => {
   try {
     const { type, base64 } = req.body;
@@ -181,7 +172,7 @@ app.patch('/photo/:id/edit', authenticate, async (req, res) => {
     }
 
     const filename = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
-    const savedUrl = saveBase64Image(base64, filename);
+    const savedUrl = await saveBase64Image(base64, filename);
 
     photo.editedVersions.push({ type, url: savedUrl, date: new Date() });
     await photo.save();
@@ -193,7 +184,7 @@ app.patch('/photo/:id/edit', authenticate, async (req, res) => {
   }
 });
 
-// ===== Delete Edited Version =====
+// Delete Edited Version (does not delete from Cloudinary)
 app.delete('/photo/:photoId/edit/:editId', authenticate, async (req, res) => {
   try {
     const { photoId, editId } = req.params;
@@ -205,9 +196,6 @@ app.delete('/photo/:photoId/edit/:editId', authenticate, async (req, res) => {
     if (editedIndex === -1)
       return res.status(404).json({ success: false });
 
-    const filePath = path.join(__dirname, photo.editedVersions[editedIndex].url);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-
     photo.editedVersions.splice(editedIndex, 1);
     await photo.save();
     res.json({ success: true, photo });
@@ -217,12 +205,12 @@ app.delete('/photo/:photoId/edit/:editId', authenticate, async (req, res) => {
   }
 });
 
-// ===== Get User Info =====
+// Get User Info
 app.get('/me', authenticate, (req, res) => {
   res.json({ success: true, user: req.user });
 });
 
-// ===== Start Server =====
+// Start Server
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`✅ Server running at http://localhost:${PORT}`);
